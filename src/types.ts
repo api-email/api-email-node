@@ -4,8 +4,8 @@ export type EmailStatus = 'queued' | 'scheduled' | 'sent' | 'delivered' | 'bounc
 
 export interface Attachment {
   filename: string;
-  /** Bytes, or a string that is already base64-encoded. */
-  content: string | Uint8Array;
+  /** Bytes (Buffer, Uint8Array, ArrayBuffer), or a string that is already base64-encoded. */
+  content: string | Uint8Array | ArrayBuffer;
   content_type: string;
 }
 

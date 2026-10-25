@@ -55,7 +55,7 @@ await apiEmail.emails.send({
 });
 ```
 
-`content` takes bytes (`Buffer`, `Uint8Array`) or a base64 string. `scheduled_at` takes a `Date` or an ISO 8601 string, up to 30 days ahead.
+`content` takes bytes (`Buffer`, `Uint8Array`, `ArrayBuffer`) or a base64 string; for a `Blob` or `File`, pass `await file.arrayBuffer()`. `scheduled_at` takes a `Date` or an ISO 8601 string, up to 30 days ahead.
 
 ### Read, list and cancel
 

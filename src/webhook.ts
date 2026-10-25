@@ -25,17 +25,22 @@ export async function verifyWebhook(
   if (typeof secret !== 'string' || secret === '') {
     throw new TypeError('api-email: verifyWebhook needs the endpoint or route secret (whsec_…) as its third argument');
   }
-  const { t, signatures } = parseHeader(signatureHeader);
   const tolerance = options.tolerance ?? 300;
   const now = options.now ?? Date.now() / 1000;
+  // NaN would compare false below and accept any timestamp, so bad values fail closed.
+  if (!Number.isFinite(tolerance) || tolerance < 0) {
+    throw new TypeError(`api-email: tolerance must be a finite number of seconds from 0, got ${String(options.tolerance)}`);
+  }
+  if (!Number.isFinite(now)) throw new TypeError(`api-email: now must be a Unix time in seconds, got ${String(options.now)}`);
+  const { t, signatures } = parseHeader(signatureHeader);
   if (Math.abs(now - t) > tolerance) {
     throw new WebhookVerificationError('timestamp_out_of_tolerance', `The signature timestamp is more than ${tolerance} seconds away from now`);
   }
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-  const signed = concat(encoder.encode(`${t}.`), body);
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  // One HMAC however many v1 values the header carries (two arrive for 24 hours after a secret rotation).
+  const expected = new Uint8Array(await crypto.subtle.sign('HMAC', key, concat(encoder.encode(`${t}.`), body)));
   for (const signature of signatures) {
-    // subtle.verify compares in constant time. Two v1 values arrive for 24 hours after a secret rotation.
-    if (await crypto.subtle.verify('HMAC', key, hexToBytes(signature), signed)) return parseEvent(body);
+    if (constantTimeEqual(expected, hexToBytes(signature))) return parseEvent(body);
   }
   throw new WebhookVerificationError('signature_mismatch', 'No signature in the header matches this body and secret');
 }
@@ -74,6 +79,13 @@ function concat(a: Uint8Array, b: Uint8Array) {
   out.set(a);
   out.set(b, a.length);
   return out;
+}
+
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+  return diff === 0;
 }
 
 function hexToBytes(hex: string) {

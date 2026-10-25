@@ -259,4 +259,46 @@ describe('path', () => {
     expect(() => path`/emails/${''}`).toThrow(TypeError);
     expect(() => path`/emails/${undefined as unknown as string}`).toThrow(TypeError);
   });
+
+  it('rejects dot segments, which URL parsing would collapse into another path', () => {
+    for (const id of ['.', '..']) expect(() => path`/emails/${id}`, id).toThrow(TypeError);
+    expect(path`/emails/${'em..1'}`).toBe('/emails/em..1');
+  });
+});
+
+describe('option validation', () => {
+  it('rejects a timeout or maxRetries that is not a usable number', async () => {
+    const { fetch, requests } = mockFetch();
+    const bad = [{ timeout: 0 }, { timeout: -1 }, { timeout: Number.NaN }, { maxRetries: Number.NaN }, { maxRetries: -1 }, { maxRetries: 1.5 }];
+    for (const options of bad) {
+      expect(() => http(fetch, options), String(Object.values(options)[0])).toThrow(TypeError);
+      await expect(http(fetch).request({ method: 'GET', path: '/emails', options }), String(Object.values(options)[0])).rejects.toThrow(TypeError);
+    }
+    expect(requests).toHaveLength(0);
+  });
+
+  it('treats an Infinity or very large timeout as no timeout', async () => {
+    for (const timeout of [Infinity, 2 ** 31]) {
+      // Answers after 20 ms, and rejects on abort like a real fetch.
+      const { fetch } = mockFetch(
+        (init) =>
+          new Promise<Response>((resolve, reject) => {
+            const timer = setTimeout(() => resolve(json(200, { ok: 1 })), 20);
+            init.signal?.addEventListener('abort', () => {
+              clearTimeout(timer);
+              reject(init.signal?.reason);
+            });
+          }),
+      );
+      await expect(http(fetch, { timeout }).request({ method: 'GET', path: '/emails' }), String(timeout)).resolves.toEqual({ ok: 1 });
+    }
+  });
+
+  it('rejects an empty idempotency key instead of sending one', async () => {
+    const { fetch, requests } = mockFetch(json(200, {}), json(200, {}));
+    for (const idempotencyKey of ['', '   ']) {
+      await expect(http(fetch).request({ method: 'POST', path: '/emails', body: {}, options: { idempotencyKey } })).rejects.toThrow(TypeError);
+    }
+    expect(requests).toHaveLength(0);
+  });
 });

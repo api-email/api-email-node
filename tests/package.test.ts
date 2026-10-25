@@ -19,6 +19,11 @@ describe('package', () => {
     expect(VERSION).toBe(pkg.version);
   });
 
+  it('points the top-level types field at index.d.ts, which TypeScript 4.6 and older can read', () => {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { types: string };
+    expect(pkg.types).toBe('./dist/index.d.ts');
+  });
+
   it('src uses no Node-only APIs, so it runs in Bun, Deno and Workers', () => {
     for (const file of sourceFiles(join(root, 'src'))) {
       const text = readFileSync(file, 'utf8');

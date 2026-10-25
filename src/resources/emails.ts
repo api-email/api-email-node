@@ -41,7 +41,16 @@ function toWire(params: SendEmailParams): Record<string, unknown> {
   const body: Record<string, unknown> = { ...rest };
   if (scheduled_at !== undefined) body.scheduled_at = scheduled_at instanceof Date ? scheduled_at.toISOString() : scheduled_at;
   if (attachments !== undefined) {
-    body.attachments = attachments.map((a) => ({ ...a, content: typeof a.content === 'string' ? a.content : toBase64(a.content) }));
+    body.attachments = attachments.map((a) => ({ ...a, content: encodeContent(a.content) }));
   }
   return body;
+}
+
+function encodeContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (ArrayBuffer.isView(content)) return toBase64(new Uint8Array(content.buffer, content.byteOffset, content.byteLength));
+  if (Object.prototype.toString.call(content) === '[object ArrayBuffer]') return toBase64(new Uint8Array(content as ArrayBuffer));
+  // Anything else would otherwise go out as an empty file without an error.
+  const hint = typeof Blob !== 'undefined' && content instanceof Blob ? ': for a Blob or File, pass await file.arrayBuffer()' : '';
+  throw new TypeError(`api-email: attachment content must be a base64 string, bytes (Buffer, Uint8Array) or an ArrayBuffer${hint}`);
 }

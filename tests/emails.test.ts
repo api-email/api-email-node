@@ -54,6 +54,34 @@ describe('emails', () => {
     expect(body.attachments[1]!.content).toBe('aGk=');
   });
 
+  it('send base64-encodes an ArrayBuffer or any typed-array view of attachment bytes', async () => {
+    const bytes = new Uint8Array([0, 1, 2, 250, 251, 252, 253, 254, 255]);
+    const expected = Buffer.from(bytes).toString('base64');
+    const view = new DataView(new Uint8Array([9, ...bytes, 9]).buffer, 1, bytes.length);
+    const { fetch, requests } = mockFetch(json(200, {}), json(200, {}));
+    for (const content of [bytes.slice().buffer, view]) {
+      await client(fetch).emails.send({
+        from: 'a@acme.com',
+        to: 'b@example.com',
+        subject: 's',
+        text: 't',
+        attachments: [{ filename: 'f.bin', content: content as ArrayBuffer, content_type: 'application/octet-stream' }],
+      });
+    }
+    for (const r of requests) expect((r.body as { attachments: { content: string }[] }).attachments[0]!.content).toBe(expected);
+  });
+
+  it('send rejects attachment content it cannot encode, with a hint for Blob', async () => {
+    const { fetch, requests } = mockFetch();
+    const api = client(fetch);
+    const send = (content: unknown) =>
+      api.emails.send({ from: 'a@acme.com', to: 'b@example.com', subject: 's', text: 't', attachments: [{ filename: 'f', content: content as string, content_type: 'text/plain' }] });
+    await expect(send(new Blob(['hi']))).rejects.toThrow(/arrayBuffer\(\)/);
+    await expect(send(42)).rejects.toThrow(TypeError);
+    await expect(send({ data: [1, 2] })).rejects.toThrow(TypeError);
+    expect(requests).toHaveLength(0);
+  });
+
   it('send requires text or html at compile time', () => {
     const api = client(mockFetch().fetch);
     // @ts-expect-error: neither text nor html

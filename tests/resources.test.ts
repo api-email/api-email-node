@@ -96,6 +96,9 @@ describe('resources', () => {
       () => api.inbound.get(''),
       () => api.inbound.attachment('', 0),
       () => api.webhooks.delete(''),
+      () => api.emails.cancel('.'),
+      () => api.domains.delete('..'),
+      () => api.inbound.attachment('..', 0),
     ];
     for (const call of calls) await expect(call()).rejects.toThrow(TypeError);
     expect(requests).toHaveLength(0);

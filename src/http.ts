@@ -39,6 +39,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_RETRIES = 2;
 const MAX_RETRY_AFTER_MS = 60_000;
 const MAX_BACKOFF_MS = 8_000;
+const MAX_TIMER_MS = 2_147_483_647; // setTimeout fires after 1 ms for anything larger
 
 type Attempt = { ok: true; value: unknown } | { ok: false; error: ApiEmailError; retryAfter: string | null };
 
@@ -52,8 +53,8 @@ export class HttpClient {
   constructor(apiKey: string, options: ClientOptions = {}) {
     this.#apiKey = apiKey;
     this.#baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
-    this.#timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
-    this.#maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
+    this.#timeout = checkTimeout(options.timeout, DEFAULT_TIMEOUT_MS);
+    this.#maxRetries = checkRetries(options.maxRetries, DEFAULT_MAX_RETRIES);
     const custom = options.fetch;
     // Called detached: some runtimes reject a native fetch invoked with a foreign `this`.
     this.#fetch = custom ? (input, init) => custom(input, init) : (input, init) => globalThis.fetch(input, init);
@@ -73,10 +74,17 @@ export class HttpClient {
       body = JSON.stringify(args.body);
     }
     // One key per call, reused on every retry, so a retried POST never acts twice.
-    if (args.method === 'POST') headers['idempotency-key'] = options.idempotencyKey ?? crypto.randomUUID();
+    if (args.method === 'POST') {
+      const key = options.idempotencyKey;
+      // An empty key would make every such call look like the same email to the server.
+      if (key !== undefined && (typeof key !== 'string' || key.trim() === '')) {
+        throw new TypeError('api-email: idempotencyKey must be a non-empty string');
+      }
+      headers['idempotency-key'] = key ?? crypto.randomUUID();
+    }
     const init: RequestInit = body === undefined ? { method: args.method, headers } : { method: args.method, headers, body };
-    const maxRetries = options.maxRetries ?? this.#maxRetries;
-    const timeout = options.timeout ?? this.#timeout;
+    const maxRetries = checkRetries(options.maxRetries, this.#maxRetries);
+    const timeout = checkTimeout(options.timeout, this.#timeout);
 
     for (let attempt = 0; ; attempt++) {
       let result: Attempt;
@@ -108,10 +116,13 @@ export class HttpClient {
     if (signal?.aborted) throw signal.reason;
     const controller = new AbortController();
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeout);
+    // Infinity means no timeout; very large values are capped so setTimeout does not fire at once.
+    const timer = Number.isFinite(timeout)
+      ? setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, Math.min(timeout, MAX_TIMER_MS))
+      : undefined;
     const onAbort = () => controller.abort(signal?.reason);
     signal?.addEventListener('abort', onAbort, { once: true });
     try {
@@ -137,10 +148,12 @@ export class HttpClient {
 export function path(strings: TemplateStringsArray, ...values: Array<string | number>): string {
   let out = strings[0] ?? '';
   values.forEach((value, i) => {
-    if ((typeof value !== 'string' && typeof value !== 'number') || value === '') {
-      throw new TypeError(`api-email: expected a non-empty id, got ${value === '' ? 'an empty string' : String(value)}`);
+    const text = typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
+    // '.' and '..' survive encodeURIComponent and URL parsing collapses them: /emails/.. would hit /v1/.
+    if (text === undefined || text === '' || text === '.' || text === '..') {
+      throw new TypeError(`api-email: expected an id, got ${text === undefined ? String(value) : JSON.stringify(text)}`);
     }
-    out += encodeURIComponent(String(value)) + (strings[i + 1] ?? '');
+    out += encodeURIComponent(text) + (strings[i + 1] ?? '');
   });
   return out;
 }
@@ -163,6 +176,22 @@ export function retryDelay(retryAfter: string | null, attempt: number, now: numb
     ms = Math.max(0, at - now);
   }
   return ms <= MAX_RETRY_AFTER_MS ? ms : null;
+}
+
+function checkTimeout(value: number | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
+    throw new TypeError(`api-email: timeout must be a positive number of milliseconds or Infinity, got ${String(value)}`);
+  }
+  return value;
+}
+
+function checkRetries(value: number | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < 0) {
+    throw new TypeError(`api-email: maxRetries must be a whole number from 0, got ${String(value)}`);
+  }
+  return value;
 }
 
 function isRetryableFailure(error: unknown): boolean {

@@ -96,6 +96,26 @@ describe('verifyWebhook', () => {
     await expect(verifyWebhook(body, header(), '', { now: NOW })).rejects.toThrow(TypeError);
   });
 
+  it('computes the HMAC once however many v1 values the header carries', async () => {
+    const signSpy = vi.spyOn(crypto.subtle, 'sign');
+    const verifySpy = vi.spyOn(crypto.subtle, 'verify');
+    const fakes = Array.from({ length: 50 }, (_, i) => `v1=${i.toString(16).padStart(64, '0')}`).join(',');
+    try {
+      expect(await verifyWebhook(body, `t=${NOW},${fakes},v1=${sign(body)}`, secret, { now: NOW })).toEqual(event);
+      expect(signSpy.mock.calls.length + verifySpy.mock.calls.length).toBe(1);
+    } finally {
+      signSpy.mockRestore();
+      verifySpy.mockRestore();
+    }
+  });
+
+  it('rejects a tolerance or now that is not a finite number, instead of failing open', async () => {
+    const ancient = header(sign(body, 1), 1);
+    for (const options of [{ tolerance: Number.NaN }, { tolerance: -1 }, { tolerance: Infinity }, { now: Number.NaN }]) {
+      await expect(verifyWebhook(body, ancient, secret, options), String(Object.values(options)[0])).rejects.toThrow(TypeError);
+    }
+  });
+
   it('agrees with the reference verify() from the docs', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(NOW * 1000);
