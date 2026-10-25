@@ -1,3 +1,6 @@
+import { ApiEmail } from '../src/client';
+import type { ClientOptions } from '../src/http';
+
 export interface RecordedRequest {
   url: string;
   method: string;
@@ -41,3 +44,6 @@ export const hanging = (init: RequestInit): Promise<Response> =>
   new Promise((_, reject) => {
     init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
   });
+
+export const client = (fetch: typeof globalThis.fetch, options: ClientOptions = {}): ApiEmail =>
+  new ApiEmail('ae_test_123', { fetch, maxRetries: 0, ...options });
