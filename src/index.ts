@@ -29,3 +29,5 @@ export type {
   WebhookEventType,
 } from './types';
 export { VERSION } from './version';
+export { verifyWebhook } from './webhook';
+export type { VerifyWebhookOptions } from './webhook';
