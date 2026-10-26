@@ -16,8 +16,8 @@ describe('README', () => {
     for (const name of methods) expect(readme, name).toContain(name);
   });
 
-  it('says the API is in early access and links the signup page', () => {
-    expect(readme).toMatch(/early access/i);
+  it('links the signup page for an API key, with no early-access caveat', () => {
+    expect(readme).not.toMatch(/early access|in batches/i);
     expect(readme).toContain('https://api.email/signup');
   });
 

@@ -2,7 +2,7 @@
 
 The official Node.js SDK for [api.email](https://api.email): send and receive transactional email through one API.
 
-> **Early access.** api.email opens accounts in batches: [get on the list](https://api.email/signup) to receive an API key. This SDK follows the API documented at [api.email/docs](https://api.email/docs).
+Get an API key at [api.email/signup](https://api.email/signup). This SDK follows the API documented at [api.email/docs](https://api.email/docs).
 
 ## Install
 
